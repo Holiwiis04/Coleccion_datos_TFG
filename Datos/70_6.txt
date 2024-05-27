@@ -1,0 +1,21 @@
+	J = 6	! numero de tareas a ser planificadas
+	T = 70	! numero de periodos de tiempo
+
+	u = [4, 6, 3, 1, 1, 1]	! importancia de cada tarea
+	q = [3, 3, 3, 3, 1, 1]	! cantidad de energia empleada en tarea
+	min_statup = [1, 1, 1, 1, 1, 1]	! tiempo mínimo de veces que una tarea se puede iniciar
+	max_statup = [3, 5, 4, 6, 5, 3]	! tiempo máximo de veces que una tarea puede iniciar
+	min_cpu_time = [5, 8, 6, 7, 9, 4]	! tiempo mínimo de unidades de tiempo que una tarea puede consumir en secuencia
+	max_cpu_time = [12, 20, 15, 18, 22, 10] ! tiempo máximo de unidades de tiempo que una tarea puede consumir en secuencia
+	min_periodo_job = [20, 30, 25, 28, 32, 22] ! tiempo mínimo que una tarea debe esperar para repetirse
+	max_periodo_job = [50, 60, 70, 64, 55, 45] ! tiempo máximo que una tarea puede esperar para repetirse
+	win_min = [0, 5, 0, 6, 0, 0]	! inicio de la ventana de ejecucion de cada tarea
+	win_max = [50, 67, 70, 70, 59, 65]	! final de la ventana de ejecucion de cada tarea
+	! cantidad de energia recibida en el periodo de tiempo t (por carga de paneles solares)
+	r = [9.05, 9.10, 9.07, 8.96, 8.78, 8.53, 8.22, 7.85, 7.43, 6.97, 
+	     6.47, 5.95, 5.42, 4.88, 4.61, 4.45, 4.21, 3.90, 3.52, 3.07, 
+	     2.57, 2.78, 2.98, 3.32, 3.90, 4.48, 5.04, 5.57, 6.07, 6.52, 
+	     6.93, 7.27, 7.55, 7.76, 7.90, 7.95, 7.93, 7.83, 7.65, 7.39, 
+	     7.06, 6.65, 6.95, 7.25, 7.49, 7.74, 8.13, 8.44, 8.68, 8.85, 
+	     8.93, 8.95, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 
+	     0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00]
