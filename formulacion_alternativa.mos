@@ -1,0 +1,173 @@
+model formulacion_alternativa
+uses "mmxprs","mmetc","mmsystem"
+
+declarations
+	!Declarar aqui el valor de los parametros de la prueba que queremos realizar
+			
+	! Datos para la bateria
+	Q = 5.6	! capacidad promedio (en Amperios hora)
+	V = 3.6	 ! voltaje promedio (en Voltios)
+	e = 0.9	 ! eficiencia de la bateria
+	S_0 = 0.75  ! en tanto por uno
+	p = 0.3		! la rho (minimo valor de la variable S)
+	gam = 3.6	! gamma en la notacion
+
+	Jr=1..J	! rango de tareas
+	Tr=1..T	! rango de periodos de tiempo
+	phi : array(Jr,Tr) of mpvar	!1 si la tarea j esta en ejecucion en el periodo t
+	psi : array(Jr,Tr) of mpvar !1 si la tarea j se inicia en el periodo t
+	alf : array(Tr) of mpvar	!cantidad de energia tomada de la bateria en el periodo t
+	S : array(Tr) of mpvar !estado de carga en el periodo t
+	objetivo : linctr
+end-declarations
+
+setparam("XPRS_VERBOSE",true)  !Nos muestra más información
+tiempolimite := 3600
+setparam('XPRS_MAXTIME',-tiempolimite) ! Tiempo máximo
+
+
+!-----------------------------Variables---------------------------------
+
+!Especificamos como queremos que sean las variables
+
+forall(j in Jr) do
+	forall(t in Tr) do
+		phi(j,t) is_binary
+		psi(j,t) is_binary
+	end-do
+end-do
+
+forall(t in Tr) do
+	alf(t) is_free
+end-do
+
+
+!Funcion objetivo
+objetivo := sum(j in Jr)(sum(t in Tr)(u(j)*(sum(l in 1..t)(phi(j,l)-psi(j,l)))))
+
+!-----------------------Restricciones----------------------------
+
+! (2b)
+forall(t in Tr) do
+	(sum(j in Jr)q(j)*(sum(l in 1..t)(phi(j,l)-psi(j,l))))<=r(t)+gam*V*(1-alf(t))
+end-do
+
+! (2e)  Mejorada
+forall(t in 1..T-1) do
+	S(t+1)=S(t)+(e*(r(t)-sum(j in Jr)(q(j)*(sum(l in 1..t)(phi(j,l)-psi(j,l))))))/(V*60*Q)
+end-do
+	
+! (2f)
+forall(t in Tr) do
+	S(t)<=1
+end-do
+
+! (2g)
+forall(t in Tr) do
+	S(t)>=p
+end-do
+
+! (2h) y (2i)
+S(T)<=S(1)*(1+S_0)
+S(T)>=S(1)*(1-S_0)
+
+! (3.2.8)
+forall(j in Jr) do
+	forall(t in Tr) do
+		(sum(l in 1..t)phi(j,l))-(sum(l in 1..t)psi(j,l))<=1
+	end-do
+end-do
+
+! (3.2.9)
+forall(j in Jr) do
+	forall(t in 2..T) do
+		sum(l in 1..t-1)phi(j,l)>=sum(l in 1..t)psi(j,l)
+	end-do
+end-do
+
+! (3.2.10)
+forall(j in Jr) do
+	forall(t in Tr) do
+		phi(j,t)+psi(j,t)<=1
+	end-do
+end-do
+
+! (2n)
+forall(j in Jr) do
+	(sum(t in Tr)phi(j,t))>=min_statup(j)
+end-do
+
+! (2o)
+forall(j in Jr) do
+	(sum(t in Tr)phi(j,t))<=max_statup(j)
+end-do
+
+! (3.2.13) (2p)
+forall(j in Jr) do
+	forall(t in 1..T-min_cpu_time(j)+1) do
+		(sum(l in t..t+min_cpu_time(j)-1)psi(j,l))<=1
+	end-do
+end-do
+
+! (3.2.14)
+forall(j in Jr) do
+	forall(t in 1..T-min_cpu_time(j)+1) do
+		forall(k in t..t+min_cpu_time(j)-1) do
+			(sum(l in t..k)phi(j,l))+(sum(l in k..t+min_cpu_time(j)-1)psi(j,l))<=1
+		end-do
+	end-do
+end-do
+
+! (3.2.15) (2q)
+forall(j in Jr) do
+	forall(t in 1..T-max_cpu_time(j)) do
+		(sum(l in t+min_cpu_time(j)..t+max_cpu_time(j))psi(j,l))>=phi(j,t)
+	end-do
+end-do
+
+! (3.2.16) (2r)
+forall(j in Jr) do
+	forall(t in T-min_cpu_time(j)+2..T) do
+		(sum(l in t..T)(psi(j,l)))<=1-phi(j,t)
+	end-do
+end-do
+
+! (2s)
+forall(j in Jr) do
+	forall(t in 1+win_min(j)..win_max(j)-min_periodo_job(j)) do
+		(sum(l in t..t+min_periodo_job(j)-1)phi(j,l))<=1
+	end-do
+end-do
+
+! (2t)
+forall(j in Jr) do
+	forall(t in 1+win_min(j)..win_max(j)-max_periodo_job(j)) do
+		(sum(l in t..t+max_periodo_job(j)-1)phi(j,l))>=1
+	end-do
+end-do
+
+! (3.2.19) (2u)
+forall(j in Jr) do
+	forall(t in 1..win_min(j)) do
+		(sum(l in 1..t)(phi(j,l)-psi(j,l)))=0
+	end-do
+end-do
+
+! (3.2.20) (2v)
+forall(j in Jr) do
+	forall(t in win_max(j)..T) do
+		(sum(l in 1..t)(phi(j,l)-psi(j,l)))=0
+	end-do
+end-do
+
+! (2y)
+forall(t in Tr) do
+	0<=alf(t)
+	alf(t)<=1
+end-do
+
+
+!-----------------------------Maximizamos---------------------------------
+maximize(objetivo)		! maximize(XPRS_LIN, objetivo)
+
+end-model
