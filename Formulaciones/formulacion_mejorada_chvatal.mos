@@ -1,0 +1,318 @@
+model formulacion_mejorada_chvatal
+uses "mmxprs","mmetc","mmsystem"
+
+declarations
+	!Declarar aqui el valor de los parametros de la prueba que queremos realizar	
+	
+	! Datos para la bateria
+	Q = 5.6	! capacidad promedio (en Amperios hora)
+	V = 3.6	 ! voltaje promedio (en Voltios)
+	e = 0.9	 ! eficiencia de la bateria
+	S_0 = 0.75  ! en tanto por uno
+	p = 0.3		! la rho (minimo valor de la variable S)
+	gam = 3.6	! gamma en la notacion
+		
+	Jr=1..J	! rango de tareas
+	Tr=1..T	! rango de periodos de tiempo
+	x : array(Jr,Tr) of mpvar	!1 si la tarea j esta en ejecucion en el periodo t
+	phi : array(Jr,Tr) of mpvar !1 si la tarea j se inicia en el periodo t
+	alf : array(Tr) of mpvar	!cantidad de energia tomada de la bateria en el periodo t
+	S : array(Tr) of mpvar !estado de carga en el periodo t
+	objetivo : linctr
+	
+	! Chvatal
+	nrestr = 2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1))+(sum(k4 in 1..J)(win_max(k4)-min_periodo_job(k4)-win_min(k4)))+(sum(k5 in 1..J)(win_max(k5)-max_periodo_job(k5)-win_min(k5)))
+	nvar = J*T+J*T
+	A: array(1..nrestr,1..nvar+1) of real ! Matriz con los coeficientes de las restricciones que consideraremos
+	s=1000	! Numero de restricciones de Chvatal que queremos añadir
+    v: array(1..s,1..nrestr) of real	! Matriz con valores aleatorios
+    C: array(1..s,1..nvar+1) of real ! Matriz que almacenara el producto de vA
+    aux1: set of integer ! vector auxiliar
+    aux2: set of integer ! vector auxiliar
+    a=0
+    c=3  ! Intervalo [a, c] para valores aleatorios   
+	
+end-declarations
+
+setparam("XPRS_VERBOSE",true)  !Nos muestra más información
+tiempolimite := 3600
+setparam('XPRS_MAXTIME',-tiempolimite) ! Tiempo máximo
+
+
+!-----------------------------Variables---------------------------------
+
+! Defino la matriz con los valores de los coeficientes de las restricciones que consideramos
+forall(l in 1..nrestr) do
+	forall(k in 1..nvar+1) do
+		A(l,k):=0
+	end-do
+end-do
+
+! (2.1.14)
+forall(j in Jr) do
+	forall(t in Tr) do
+		A(j,(j-1)*T+t):= -1			! Coefs phi
+		A(j, 2*J*T+1):= -min_statup(j)		! Lado derecho
+	end-do
+end-do
+
+! (2.1.15)
+forall(j in Jr) do
+	forall(t in Tr) do
+		A(J+j,(j-1)*T+t):= 1			! Coefs phi(j,l)
+		A(J+j, 2*J*T+1):= max_statup(j)		! Lado derecho
+	end-do
+end-do
+
+! (2.1.16)
+forall(t in 1..T-min_cpu_time(1)+1) do
+	forall(l in t..t+min_cpu_time(1)-1) do
+		A(2*J + t,(1-1)*T+t):=min_cpu_time(1)		! Coeficientes de phi(j,l)
+		A(2*J + t , J*T+(1-1)*T+l):=-1		! Coeficientes de x(j,l)
+		A(2*J + t , 2*J*T+1):=0
+	end-do
+end-do
+forall(j in 2..J) do
+	forall(t in 1..T-min_cpu_time(j)+1) do
+		forall(l in t..t+min_cpu_time(j)-1) do
+			A(2*J + (sum(k1 in 1..j-1)(T-min_cpu_time(k1)+1)) + t,(1-1)*T+t):=min_cpu_time(1)		! Coeficientes de phi(j,l)
+			A(2*J + (sum(k1 in 1..j-1)(T-min_cpu_time(k1)+1)) + t , J*T+(1-1)*T+l):=-1		! Coeficientes de x(j,l)
+			A(2*J + (sum(k1 in 1..j-1)(T-min_cpu_time(k1)+1)) + t , 2*J*T+1):=0
+		end-do
+	end-do
+end-do
+
+! (2.1.17)
+forall(t in 1..T-max_cpu_time(1)) do
+	forall(l in t..t+max_cpu_time(1)) do
+		A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1)) + t , J*T+(1-1)*T+l):=1		! Coeficientes de x(j,l)
+		A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1)) + t , 2*J*T+1):=max_cpu_time(1)
+	end-do
+end-do
+forall(j in 2..J) do
+	forall(t in 1..T-max_cpu_time(j)) do
+		forall(l in t..t+max_cpu_time(j)) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1)) +(sum(k2 in 1..j-1)(T-max_cpu_time(k2))) + t , J*T+(j-1)*T+l):=1		! Coeficientes de x(j,l)
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1)) +(sum(k2 in 1..j-1)(T-max_cpu_time(k2))) + t , 2*J*T+1):=max_cpu_time(j)
+		end-do
+	end-do
+end-do
+
+! (2.1.18)
+forall(t in T-min_cpu_time(1)+2..T) do
+	forall(l in t..T) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + t-(T-min_cpu_time(1)+1) , (1-1)*T+t):=T-t+1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + t-(T-min_cpu_time(1)+1) , J*T+(1-1)*T+l):=-1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + t-(T-min_cpu_time(1)+1) , 2*J*T+1):=0
+	end-do
+end-do
+forall(j in 2..J) do
+	forall(t in T-min_cpu_time(j)+2..T) do
+		forall(l in t..T) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + (sum(k3 in 1..j-1)(min_cpu_time(k3)-1)) + t-(T-min_cpu_time(j)+1) , (j-1)*T+t):=T-t+1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + (sum(k3 in 1..j-1)(min_cpu_time(k3)-1)) + t-(T-min_cpu_time(j)+1) , J*T+(j-1)*T+l):=-1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2))) + (sum(k3 in 1..j-1)(min_cpu_time(k3)-1)) + t-(T-min_cpu_time(j)+1) , 2*J*T+1):=0
+		end-do
+	end-do
+end-do
+
+! (2.1.19)
+forall(t in 1+win_min(1)..win_max(1)-min_periodo_job(1)) do
+	forall(l in t..t+min_periodo_job(1)-1) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1)) + t-win_min(1) , (1-1)*T+l):=1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1)) + t-win_min(1) , 2*J*T+1):=1
+	end-do
+end-do
+forall(j in 2..J) do
+	forall(t in 1+win_min(j)..win_max(j)-min_periodo_job(j)) do
+		forall(l in t..t+min_periodo_job(j)-1) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1)) + (sum(k4 in 1..j-1)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + t-win_min(j) , (j-1)*T+l):=1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1)) + (sum(k4 in 1..j-1)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + t-win_min(j) , 2*J*T+1):=1
+		end-do
+	end-do
+end-do
+
+! (2.1.20)
+forall(t in 1+win_min(1)..win_max(1)-max_periodo_job(1)) do
+	forall(l in t..t+max_periodo_job(1)-1) do
+		A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1))+(sum(k4 in 1..J)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + t-win_min(1) , (1-1)*T+l):=-1
+		A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1))+(sum(k4 in 1..J)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + t-win_min(1) , 2*J*T+1):=-1
+	end-do
+end-do
+forall(j in Jr) do
+	forall(t in 1+win_min(j)..win_max(j)-max_periodo_job(j)) do
+		forall(l in t..t+max_periodo_job(j)-1) do
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1))+(sum(k4 in 1..J)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + (sum(k5 in 1..j-1)(win_max(k5)-max_periodo_job(k5)-win_min(k5))) + t-win_min(j) , (j-1)*T+l):=-1
+			A(2*J+(sum(k1 in 1..J)(T-min_cpu_time(k1)+1))+(sum(k2 in 1..J)(T-max_cpu_time(k2)))+(sum(k3 in 1..J)(min_cpu_time(k3)-1))+(sum(k4 in 1..J)(win_max(k4)-min_periodo_job(k4)-win_min(k4))) + (sum(k5 in 1..j-1)(win_max(k5)-max_periodo_job(k5)-win_min(k5))) + t-win_min(j) , 2*J*T+1):=-1
+		end-do
+	end-do
+end-do
+
+
+! Creo la matriz cuyas filas son los vectores aleatorios
+forall(l in 1..s) do
+	forall(k in 1..nrestr) do
+		v(l,k):=a+(c - a)*random
+	end-do
+end-do
+
+! Almaceno el producto de ambas matrices
+ forall(l in 1..s, k in 1..nvar+1) do
+   C(l,k) := sum(m in 1..nrestr) v(l,m) * A(m,k)
+ end-do
+
+! Defino el vector auxiliar que utilizare posteriormente
+ aux1 := {}
+ forall(j in 1..J) do
+   aux1 += {(j-1)*T + 1}
+ end-do
+ aux2 := {}
+ forall(j in 1..J) do
+   aux2 += {T*J + (j-1)*T + 1}
+ end-do
+
+!Especificamos como queremos que sean las variables
+
+forall(j in Jr) do
+	forall(t in Tr) do
+		x(j,t) is_binary
+		phi(j,t) is_binary
+	end-do
+end-do
+
+forall(t in Tr) do
+	alf(t) is_free
+end-do
+
+
+!Funcion objetivo
+objetivo := sum(j in Jr)(sum(t in Tr)(u(j)*x(j,t)))
+
+!-----------------------Restricciones----------------------------
+
+! (2b)
+forall(t in Tr) do
+	(sum(j in Jr)q(j)*x(j,t))<=r(t)+gam*V*(1-alf(t))
+end-do
+
+! (2e)  Mejorada
+forall(t in 1..T-1) do
+	S(t+1)=S(t)+(e*(r(t)-sum(j in Jr)(q(j)*x(j,t))))/(V*60*Q)
+end-do
+	
+! (2f)
+forall(t in Tr) do
+	S(t)<=1
+end-do
+
+! (2g)
+forall(t in Tr) do
+	S(t)>=p
+end-do
+
+! (2h) y (2i)
+S(T)<=S(1)*(1+S_0)
+S(T)>=S(1)*(1-S_0)
+
+! (2j)
+forall(j in Jr) do
+	phi(j,1)>=x(j,1)
+end-do
+
+! (2k)
+forall(j in Jr) do
+	forall(t in 2..T) do
+		phi(j,t)>=x(j,t)-x(j,t-1)
+	end-do
+end-do
+
+! (2l)
+forall(j in Jr) do
+	forall(t in Tr) do
+		phi(j,t)<=x(j,t)
+	end-do
+end-do
+
+! (2m)
+forall(j in Jr) do
+	forall(t in 2..T) do
+		phi(j,t)<=1-x(j,t-1)
+	end-do
+end-do
+
+! (2n)
+forall(j in Jr) do
+	(sum(t in Tr)phi(j,t))>=min_statup(j)
+end-do
+
+! (2o)
+forall(j in Jr) do
+	(sum(t in Tr)phi(j,t))<=max_statup(j)
+end-do
+
+! (2p)
+forall(j in Jr) do
+	forall(t in 1..T-min_cpu_time(j)+1) do
+		(sum(l in t..t+min_cpu_time(j)-1)x(j,l))>=min_cpu_time(j)*phi(j,t)
+	end-do
+end-do
+
+! (2q)
+forall(j in Jr) do
+	forall(t in 1..T-max_cpu_time(j)) do
+		(sum(l in t..t+max_cpu_time(j))x(j,l))<=max_cpu_time(j)
+	end-do
+end-do
+
+! (2r)
+forall(j in Jr) do
+	forall(t in T-min_cpu_time(j)+2..T) do
+		(sum(l in t..T)x(j,l))>=(T-t+1)*phi(j,t)
+	end-do
+end-do
+
+! (2s)
+forall(j in Jr) do
+	forall(t in 1+win_min(j)..win_max(j)-min_periodo_job(j)) do
+		(sum(l in t..t+min_periodo_job(j)-1)phi(j,l))<=1
+	end-do
+end-do
+
+! (2t)
+forall(j in Jr) do
+	forall(t in 1+win_min(j)..win_max(j)-max_periodo_job(j)) do
+		(sum(l in t..t+max_periodo_job(j)-1)phi(j,l))>=1
+	end-do
+end-do
+
+! (2u)
+forall(j in Jr) do
+	forall(t in 1..win_min(j)) do
+		x(j,t)=0
+	end-do
+end-do
+
+! (2v)
+forall(j in Jr) do
+	forall(t in win_max(j)..T) do
+		x(j,t)=0
+	end-do
+end-do
+
+! (2y)
+forall(t in Tr) do
+	0<=alf(t)
+	alf(t)<=1
+end-do
+
+
+!Desigualdades Chvatal
+forall(m in 1..s) do
+	sum(l1 in aux1)(sum(k1 in l1..l1+T-1)(floor(C(m,k1))*phi(floor((l1-1+T)/T),k1-(l1-1))))+sum(l2 in aux2)(sum(k2 in l2..l2+T-1)(floor(C(m,k2))*x(floor((l2-T*J-1+T)/T),k2-(l2-1))))<=floor(C(m,nvar+1))
+end-do		
+
+
+!-----------------------------Maximizamos---------------------------------
+maximize(objetivo)		! maximize(XPRS_LIN, objetivo)
+
+end-model
